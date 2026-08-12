@@ -71,23 +71,28 @@ git -C ${PKGHOME}/hermes-agent remote add origin https://github.com/NousResearch
 
 **现象**：`update --check` / `git fetch` 长时间无响应（几分钟~无限）。
 
-**根因**：出口 DNS 被透明代理劫持——`getent hosts github.com` 返回保留段地址（如 198.18.0.19），该代理对 git 协议支持不完整，git 连接挂起且**默认无超时上限**。
+**根因**：NAS 开启全局代理（Clash TUN / fake-ip 模式）时，DNS 解析被代理接管——`getent hosts github.com` 返回保留段地址（198.18.x.x），流量经 TUN 转代理出口。**代理正常时 git/curl 直连即可通（实测毫秒级）**；但当透明代理异常/链路不通时，git 连接会挂起且**默认无超时上限** → 无限卡死。
 
 **检查**：
 ```bash
-timeout 5 getent hosts github.com   # 若返回 198.18.x.x / 10.x / 保留段 = 被劫持
-git config --global --list | grep -E 'proxy|lowSpeed'   # 应看到代理 + lowSpeedLimit
+timeout 5 getent hosts github.com   # 198.18.x.x = TUN fake-ip，属正常
+timeout 20 git ls-remote https://github.com/NousResearch/hermes-agent.git HEAD   # 通=代理链路正常
+git config --global --list | grep -E 'proxy|lowSpeed'   # 应无远程代理，可有 lowSpeed 防御
 ```
 
-**修复**（走 socks 代理 + 低速超时，实测 fetch 35s 完成）：
+**修复**（NAS 有全局代理 → **直连即可，不要配远程 socks 代理**）：
 ```bash
-git config --global http.proxy "${GIT_SOCKS_PROXY}"        # 例: socks5h://user:pass@host:1080
-git config --global https.proxy "${GIT_SOCKS_PROXY}"
+# 1. 确保没有残留的远程代理配置（已废弃 8.212.182.25 那台）
+git config --global --unset-all http.proxy 2>/dev/null
+git config --global --unset-all https.proxy 2>/dev/null
+# 2. 只保留低速超时防御（代理异常时快速失败而不是无限挂）
 git config --global http.lowspeedlimit 100
 git config --global http.lowspeedtime 120
+# 3. 验证
+timeout 30 git ls-remote https://github.com/peng418/hermes-studio-fixes.git HEAD
 ```
 
-> ⚠️ 凭证红线：代理的用户名/密码**不要写进本仓库任何文件**，用环境变量 `GIT_SOCKS_PROXY` 传递（脚本支持）。
+> ⚠️ 若 NAS 全局代理关闭了，再按需配置代理（本机 Clash 常见端口：HTTP 7890 / SOCKS5 7891，指向 127.0.0.1）。
 
 ---
 

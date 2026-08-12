@@ -30,7 +30,7 @@ hermes-studio-fixes/
 | 1 | 源码 | 升级后 `upgrade_callback` 版本检测失效（`HERMES_BIN` 未定义，每次升级异常/误判） | `cmd/upgrade_callback` 补 `NODE_PREFIX`/`HERMES_BIN` 定义 + `toast_err` 空值兜底 |
 | 2 | 环境 | `hermes` 报 `not installed in venv` | `data/venv/bin/hermes` 软链到 `hermes-agent/venv/bin/hermes` |
 | 3 | 环境 | `hermes update` 无 git origin | 补 `git remote add origin https://github.com/NousResearch/hermes-agent.git` |
-| 4 | 环境 | `update --check` 无限卡死（DNS 被劫持） | git socks 代理 + `lowSpeedLimit 100 / lowSpeedTime 120` |
+| 4 | 环境 | `update --check` 无限卡死（透明代理异常时 git 无超时挂死） | 清远程代理，git 直连走 NAS 全局代理 + `lowSpeedLimit 100 / lowSpeedTime 120` 防御 |
 | 5 | 环境 | npm 全局装包 EACCES | `npm prefix → ${PKGHOME}/data/node` + npmmirror registry |
 
 ## 升级后合并流程

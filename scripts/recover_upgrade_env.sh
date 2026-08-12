@@ -30,17 +30,13 @@ else
   echo "✅ 2/4 git origin 已补上: ${UPSTREAM_REPO}"
 fi
 
-# 3. git 代理 + 低速超时（DNS 劫持防御；代理凭证走环境变量，绝不落盘到仓库）
-if [ -n "${GIT_SOCKS_PROXY:-}" ]; then
-  git config --global http.proxy "${GIT_SOCKS_PROXY}"
-  git config --global https.proxy "${GIT_SOCKS_PROXY}"
-  echo "✅ 3/4 git 代理已配置（来自 GIT_SOCKS_PROXY 环境变量）"
-else
-  echo "ℹ️  3/4 未设置 GIT_SOCKS_PROXY，跳过代理配置（仅配置低速超时）"
-fi
+# 3. 低速超时防御（NAS 有全局透明代理时 git 直连即可，不配远程代理）
+# 若 NAS 全局代理关闭需手动配代理时：git config --global http.proxy http://127.0.0.1:7890
+git config --global --unset-all http.proxy 2>/dev/null || true
+git config --global --unset-all https.proxy 2>/dev/null || true
 git config --global http.lowspeedlimit 100
 git config --global http.lowspeedtime 120
-echo "✅ 3/4 低速超时已配置: lowSpeedLimit=100, lowSpeedTime=120"
+echo "✅ 3/4 git 已清除远程代理，保留低速超时防御: lowSpeedLimit=100, lowSpeedTime=120"
 
 # 4. npm prefix（避免 EACCES）+ 国内镜像
 # 直写 ~/.npmrc（幂等）：npm config set 本质也是改这个文件，且不依赖 node 在 PATH
