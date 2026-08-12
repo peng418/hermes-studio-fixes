@@ -1,7 +1,30 @@
 # FIXES.md — 升级链路故障根因与修复详解
 
-> 对应 README 的 4 项故障。每条含：根因、检查命令（输出=未修复）、修复命令。
+> 对应 README 的修复清单。每条含：根因、检查命令（输出=未修复）、修复命令。
 > 环境变量约定：`PKGHOME` = fnOS 应用目录（本机 `/vol6/@apphome/hermes-studio`）。
+
+---
+
+## 0. 源码修复：upgrade_callback 版本检测失效（2026-08-12 新增）
+
+**现象**：升级 Hermes Studio 后版本检测异常、反复重装或升级流程报错。
+
+**根因**：`cmd/upgrade_callback` 第 3 步检测已安装版本时引用 `HERMES_BIN`，但脚本里**从未定义**该变量（`install_callback` 定义了，`upgrade_callback` 漏了）。`[ -x "${HERMES_BIN}" ]` 恒为 false → `INSTALLED_VER` 永远为空 → 升级逻辑走错分支；`ACTUAL_VER` 处还会执行 `"" --version` 报错。
+
+**修复**（本仓库 `cmd/upgrade_callback` 已应用）：
+```bash
+# 在 DATA_DIR="${TRIM_PKGHOME}/data" 之后补：
+NODE_PREFIX="${DATA_DIR}/node"
+HERMES_BIN="${NODE_PREFIX}/bin/hermes-web-ui"
+# 另：toast_err 的 $TRIM_TEMP_LOGFILE 补空值兜底 ${TRIM_TEMP_LOGFILE:-/tmp/hermes-studio-upgrade.err}
+```
+
+**检查**（官方新版是否已修）：
+```bash
+grep -n 'HERMES_BIN=' cmd/upgrade_callback   # 有输出=已修；无输出=bug 还在，需合并
+```
+
+**验证**：`bash -n cmd/upgrade_callback` 通过；升级时日志出现 `installed: x.y.z, target: x.y.z` 且版本匹配走「无需重装」。
 
 ---
 

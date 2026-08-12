@@ -1,49 +1,50 @@
-# hermes-studio-fixes · Hermes Studio (fnOS) 升级修复基线
+# hermes-studio-fixes · Hermes Studio (fnOS) 完整源码 + 升级修复基线
 
-> **用途**：保存 Hermes Studio（fnOS fpk 版，上游项目 [Fnos-Hermes-Studio](https://github.com/veenyi/Fnos-Hermes-Studio)）升级链路的自研修复。
-> 每次从 fnOS 应用中心**升级 Hermes Studio 后**，若出现「更新失败 / 拉取开发工具失败」类问题，按本仓库 `FIXES.md` 检查并用 `scripts/` 恢复。
+> 本仓库 = **Fnos-Hermes-Studio 完整项目源码**（上游 [veenyi/Fnos-Hermes-Studio](https://github.com/veenyi/Fnos-Hermes-Studio)，把 [EKKOLearnAI/hermes-studio](https://github.com/EKKOLearnAI/hermes-studio) 打包为飞牛 fnOS 可安装 FPK）
+> \+ **升级链路修复**（2026-08-11/12 实测：更新失败、拉取开发工具失败）。
+> 升级官方新版后若问题复现，用本仓库的修复合并回去。
 
-## 覆盖的故障（2026-08-11 实测修复）
-
-| # | 故障现象 | 根因 | 修复 |
-|---|---------|------|------|
-| 1 | 运行 `hermes` 报 `hermes-agent not installed in venv. Please reinstall the app.` | fnOS 启动器写死找 `${PKGHOME}/data/venv/bin/hermes`，但离线 bundle 把 venv 建在源码树 `hermes-agent/venv/` | `data/venv/bin/hermes` 软链接到源码树 venv |
-| 2 | `hermes update` 报 `git: 'remote-origin' is not a git command` / origin 缺失 | 离线 bundle 的 `.git` 不带 remote | 补 `git remote add origin https://github.com/NousResearch/hermes-agent.git` |
-| 3 | `hermes update --check` 无限卡死 | 出口 DNS 被透明代理劫持（`getent hosts github.com` → 198.18.x.x 保留段），git 协议被不完整代理破坏且无超时 | git 走 socks 代理 + `http.lowSpeedLimit 100 / lowSpeedTime 120`（实测 35s 完成 fetch） |
-| 4 | `npm install -g` 报 EACCES 权限不足 | npm prefix 指向系统 Node 全局目录（`/vol6/@appcenter/nodejs_v24`），普通用户无写权限 | `npm config set prefix ${PKGHOME}/data/node`，registry 用 npmmirror |
-
-## 快速使用
-
-```bash
-# 1. 先检查环境哪里坏了（输出缺失项）
-bash scripts/check_upgrade_env.sh /vol6/@apphome/hermes-studio
-
-# 2. 一键恢复（幂等，可重复执行）
-export GIT_SOCKS_PROXY="socks5h://user:pass@host:port"   # 可选：有代理才设，没有就跳过
-bash scripts/recover_upgrade_env.sh /vol6/@apphome/hermes-studio
-
-# 3. 验证
-hermes --version && hermes update --check
-```
-
-## 仓库结构
+## 目录结构
 
 ```
 hermes-studio-fixes/
-├── README.md                        # 本文件
-├── FIXES.md                         # 各故障根因详解 + 手工修复命令 + 验证标记
-└── scripts/
-    ├── check_upgrade_env.sh         # 环境检查（幂等，只读）
-    └── recover_upgrade_env.sh       # 一键恢复（幂等，可重复执行）
+├── .github/workflows/          # CI：auto-update / build（上游原样）
+├── app/                        # FPK 应用内容（bin/config/skills/ui）
+├── cmd/                        # fnOS 生命周期脚本（install/upgrade/start...）
+├── config/bootstrap/           # 版本号（hermes-studio-version.env 等）
+├── fnos-skills/                # fnOS Skill 打包
+├── preview/                    # 预览素材
+├── scripts/
+│   ├── build-fpk.sh            # FPK 打包脚本（上游原样）
+│   ├── hermes_monitor.py       # 安装监控脚本（上游原样）
+│   ├── check_upgrade_env.sh    # 🛠 升级链路环境检查（本仓库新增）
+│   └── recover_upgrade_env.sh  # 🛠 升级链路一键恢复（本仓库新增）
+├── FIXES.md                    # 全部修复的根因 + 验证标记 + 合并指南
+└── README.md                   # 本文件
 ```
 
-## 合并流程（升级后）
+## 修复清单
 
-1. fnOS 应用中心升级 Hermes Studio → 出现上述任一故障
-2. `bash scripts/check_upgrade_env.sh <PKGHOME>` 定位缺失项
-3. `bash scripts/recover_upgrade_env.sh <PKGHOME>` 恢复
-4. 若官方改版导致脚本不适用：以官方新版为准，按 `FIXES.md` 中的修复点手工合并
+| # | 类型 | 故障 | 修复 |
+|---|------|------|------|
+| 1 | 源码 | 升级后 `upgrade_callback` 版本检测失效（`HERMES_BIN` 未定义，每次升级异常/误判） | `cmd/upgrade_callback` 补 `NODE_PREFIX`/`HERMES_BIN` 定义 + `toast_err` 空值兜底 |
+| 2 | 环境 | `hermes` 报 `not installed in venv` | `data/venv/bin/hermes` 软链到 `hermes-agent/venv/bin/hermes` |
+| 3 | 环境 | `hermes update` 无 git origin | 补 `git remote add origin https://github.com/NousResearch/hermes-agent.git` |
+| 4 | 环境 | `update --check` 无限卡死（DNS 被劫持） | git socks 代理 + `lowSpeedLimit 100 / lowSpeedTime 120` |
+| 5 | 环境 | npm 全局装包 EACCES | `npm prefix → ${PKGHOME}/data/node` + npmmirror registry |
+
+## 升级后合并流程
+
+1. fnOS 应用中心升级 Hermes Studio → 出现更新失败/开发工具拉取失败
+2. 环境类（#2~#5）：
+   ```bash
+   bash scripts/check_upgrade_env.sh /vol6/@apphome/hermes-studio   # 检查
+   bash scripts/recover_upgrade_env.sh /vol6/@apphome/hermes-studio # 恢复（幂等）
+   ```
+   （代理凭证用环境变量 `GIT_SOCKS_PROXY` 传入，不写死在仓库）
+3. 源码类（#1）：对比官方新版 `cmd/upgrade_callback`，把 `NODE_PREFIX`/`HERMES_BIN` 定义补回去（见 FIXES.md）
+4. 重启应用使生效
 
 ## 版本记录
 
-- 2026-08-12：初版。收录 2026-08-11 在 `/vol6/@apphome/hermes-studio` 实测的 4 项升级链路修复。
+- 2026-08-12：完整源码入库（上游原样）+ 修复 #1（upgrade_callback 源码 bug）+ 修复 #2~#5（升级链路环境脚本）。

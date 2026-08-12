@@ -1,0 +1,129 @@
+name: Auto-update upstream versions
+
+# 自动跟踪上游版本并触发重建：
+#   - hermes-web-ui（官方 GitHub Release：EKKOLearnAI/hermes-studio，0.6.x 线）：取最新版本标签，
+#     构建时从该 release 的预构建产物 hermes-web-ui-${ver}.tar.gz 获取（比 npm 发布更及时）。
+#   - hermes-agent（GitHub release，日期版如 v2026.8.3）：取 NousResearch/hermes-agent 最新 release 标签。
+# 任一与 config/bootstrap/*.env 中记录不一致时，更新 env 文件与 manifest 版本号，
+# commit 并 push 到 main —— 这会触发 build.yml 构建并发布新 FPK（自动发版）。
+# 版本号规则：web-ui 主版本变化则重置 build 计数为 1，否则 build+1。
+
+on:
+  schedule:
+    # 每天 UTC 03:17 检查一次上游（避开整点，降低 GitHub 限流概率）
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  check-upstream:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Detect latest upstream versions
+        id: detect
+        run: |
+          set -e
+          # hermes-web-ui：跟踪官方 GitHub Release（EKKOLearnAI/hermes-studio）。
+          # 官方在 release 上随版本即时发布预构建产物，比 npm 发布更及时；其 release 被官方
+          # 显式标记为「非 latest」，故不能取 releases/latest，需自行过滤版本标签（^v\d+\.\d+\.\d+$）。
+          WEBUI_LATEST="$(curl -fsSL --max-time 30 "https://api.github.com/repos/EKKOLearnAI/hermes-studio/releases?per_page=100" \
+            | python3 -c 'import sys,json,re; d=json.load(sys.stdin); rel=[r for r in d if re.match(r"^v\d+\.\d+\.\d+$", r["tag_name"]) and not r.get("prerelease")]; rel.sort(key=lambda r: r["published_at"], reverse=True); print(rel[0]["tag_name"].lstrip("v") if rel else "")')"
+          # hermes-agent：仍跟踪 NousResearch/hermes-agent 最新 release 标签
+          AGENT_LATEST="$(curl -fsSL --max-time 30 -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            https://api.github.com/repos/NousResearch/hermes-agent/releases/latest \
+            | python3 -c 'import sys,json;print(json.load(sys.stdin)["tag_name"])')"
+          echo "webui_latest=$WEBUI_LATEST" >> "$GITHUB_OUTPUT"
+          echo "agent_latest=$AGENT_LATEST" >> "$GITHUB_OUTPUT"
+          echo "上游最新：hermes-web-ui=$WEBUI_LATEST  hermes-agent=$AGENT_LATEST"
+
+          # 校验两端版本真实存在，避免把不存在的标签/版本写进 env 导致后续构建失败
+          if [ -z "$WEBUI_LATEST" ]; then
+            echo "::error:: 未能从官方 release 解析出 hermes-web-ui 版本，中止更新"
+            exit 1
+          fi
+          # web-ui：确认官方 release 上确实存在对应的预构建产物 hermes-web-ui-${ver}.tar.gz
+          WEBUI_ASSET_OK="$(curl -fsSL --max-time 30 "https://api.github.com/repos/EKKOLearnAI/hermes-studio/releases/tags/v${WEBUI_LATEST}" \
+            | WV="$WEBUI_LATEST" python3 -c "import sys,json,os; d=json.load(sys.stdin); names=[a['name'] for a in d.get('assets',[])]; print('yes' if f'hermes-web-ui-{os.environ[\"WV\"]}.tar.gz' in names else 'no')")"
+          if [ "$WEBUI_ASSET_OK" != "yes" ]; then
+            echo "::error:: 官方 release v${WEBUI_LATEST} 缺少 hermes-web-ui-${WEBUI_LATEST}.tar.gz 预构建产物，中止更新"
+            exit 1
+          fi
+          if ! curl -fsSL --max-time 30 -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+               "https://api.github.com/repos/NousResearch/hermes-agent/tarball/$AGENT_LATEST" >/dev/null 2>&1; then
+            echo "::error:: GitHub 上不存在 hermes-agent 标签 $AGENT_LATEST（tarball 不可达），中止更新"
+            exit 1
+          fi
+
+      - name: Compare and bump
+        id: bump
+        run: |
+          set -e
+          WEBUI_LATEST="${{ steps.detect.outputs.webui_latest }}"
+          AGENT_LATEST="${{ steps.detect.outputs.agent_latest }}"
+
+          WEBUI_ENV=config/bootstrap/hermes-studio-version.env
+          AGENT_ENV=config/bootstrap/hermes-agent-version.env
+
+          CUR_WEBUI="$(grep '^HERMES_STUDIO_VERSION=' "$WEBUI_ENV" | cut -d= -f2)"
+          CUR_AGENT="$(grep '^HERMES_AGENT_VERSION=' "$AGENT_ENV" | cut -d= -f2)"
+
+          CUR_VER="$(grep '^version' manifest | cut -d= -f2 | tr -d ' ')"
+          CUR_BASE="${CUR_VER%-*}"
+          CUR_BUILD="${CUR_VER##*-}"
+          case "$CUR_BUILD" in
+            ''|*[!0-9]*) CUR_BUILD=0 ;;
+          esac
+
+          echo "当前：webui=$CUR_WEBUI agent=$CUR_AGENT fpk=$CUR_VER"
+
+          CHANGED=0
+          if [ "$WEBUI_LATEST" != "$CUR_WEBUI" ]; then
+            sed -i "s/^HERMES_STUDIO_VERSION=.*/HERMES_STUDIO_VERSION=$WEBUI_LATEST/" "$WEBUI_ENV"
+            CHANGED=1
+            echo "web-ui 更新: $CUR_WEBUI -> $WEBUI_LATEST"
+          fi
+          if [ "$AGENT_LATEST" != "$CUR_AGENT" ]; then
+            sed -i "s/^HERMES_AGENT_VERSION=.*/HERMES_AGENT_VERSION=$AGENT_LATEST/" "$AGENT_ENV"
+            CHANGED=1
+            echo "agent 更新: $CUR_AGENT -> $AGENT_LATEST"
+          fi
+
+          if [ "$CHANGED" != "1" ]; then
+            echo "上下游版本一致，无需更新"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # 版本号规则：web-ui 主版本变化则重置 build 为 1，否则 build+1
+          if [ "$WEBUI_LATEST" != "$CUR_BASE" ]; then
+            NEW_BASE="$WEBUI_LATEST"
+            NEW_BUILD=1
+          else
+            NEW_BASE="$CUR_BASE"
+            NEW_BUILD=$((CUR_BUILD + 1))
+          fi
+          NEW_VER="${NEW_BASE}-${NEW_BUILD}"
+          sed -i "s/^version[[:space:]]*=.*/version               = $NEW_VER/" manifest
+
+          echo "新 FPK 版本: $NEW_VER"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          echo "new_version=$NEW_VER" >> "$GITHUB_OUTPUT"
+
+      - name: Commit & push (triggers build)
+        if: steps.bump.outputs.changed == 'true'
+        run: |
+          set -e
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add config/bootstrap/hermes-studio-version.env \
+                  config/bootstrap/hermes-agent-version.env \
+                  manifest
+          git commit -m "chore: auto-bump upstream -> web-ui ${{ steps.detect.outputs.webui_latest }} / agent ${{ steps.detect.outputs.agent_latest }} (FPK ${{ steps.bump.outputs.new_version }})"
+          git push
