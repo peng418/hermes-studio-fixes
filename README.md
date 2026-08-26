@@ -18,7 +18,8 @@ hermes-studio-fixes/
 │   ├── build-fpk.sh            # FPK 打包脚本（上游原样）
 │   ├── hermes_monitor.py       # 安装监控脚本（上游原样）
 │   ├── check_upgrade_env.sh    # 🛠 升级链路环境检查（本仓库新增）
-│   └── recover_upgrade_env.sh  # 🛠 升级链路一键恢复（本仓库新增）
+│   ├── recover_upgrade_env.sh  # 🛠 升级链路一键恢复（本仓库新增）
+│   └── recover_ipv6_bind.sh    # 🛠 IPv6 双栈监听一键恢复（本仓库新增，升级后必跑）
 ├── FIXES.md                    # 全部修复的根因 + 验证标记 + 合并指南
 └── README.md                   # 本文件
 ```
@@ -32,6 +33,7 @@ hermes-studio-fixes/
 | 3 | 环境 | `hermes update` 无 git origin | 补 `git remote add origin https://github.com/NousResearch/hermes-agent.git` |
 | 4 | 环境 | `update --check` 无限卡死（透明代理异常时 git 无超时挂死） | 清远程代理，git 直连走 NAS 全局代理 + `lowSpeedLimit 100 / lowSpeedTime 120` 防御 |
 | 5 | 环境 | npm 全局装包 EACCES | `npm prefix → ${PKGHOME}/data/node` + npmmirror registry |
+| 6 | 源码 | 升级后 IPv6 域名打不开（监听被重置回 0.0.0.0，域名有 AAAA 记录时浏览器走 IPv6 连不上，8-14 首修 8-25 复发） | `scripts/recover_ipv6_bind.sh` 一键恢复双栈监听 `::`（官方源码已修，见 PR） |
 
 ## 升级后合并流程
 
@@ -42,7 +44,9 @@ hermes-studio-fixes/
    bash scripts/recover_upgrade_env.sh /vol6/@apphome/hermes-studio # 恢复（幂等）
    ```
    （代理凭证用环境变量 `GIT_SOCKS_PROXY` 传入，不写死在仓库）
-3. 源码类（#1）：对比官方新版 `cmd/upgrade_callback`，把 `NODE_PREFIX`/`HERMES_BIN` 定义补回去（见 FIXES.md）
+3. 源码类（#1、#6）：对比官方新版对应文件，把修复补回去
+   - #1：`cmd/upgrade_callback` 的 `NODE_PREFIX`/`HERMES_BIN` 定义（见 FIXES.md）
+   - #6：`bash scripts/recover_ipv6_bind.sh ${PKGHOME}`（检测/修复 dist 监听默认值，幂等）
 4. 重启应用使生效
 
 ## 版本记录

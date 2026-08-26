@@ -5,6 +5,40 @@
 
 ---
 
+## 6. 源码修复：IPv6 域名打不开（监听默认值 0.0.0.0，2026-08-14 首修 / 2026-08-25 升级复发）
+
+**现象**：域名（如 `www.pjcaio.top`）在浏览器打不开 Hermes Studio，但进程正常、`ss -tlnp` 能看到 8648 端口有监听。
+
+**根因**：域名同时有 A（IPv4）和 AAAA（IPv6）记录时，**浏览器优先走 IPv6 连接**。而 hermes-web-ui 默认只监听 `0.0.0.0`（IPv4-only），IPv6 连接请求没有监听者 → 连接失败 → 页面打不开。8-14 把监听改成 `::`（双栈）修复；8-25 官方升级/重装把 `dist/server/index.js` 覆盖回默认 `0.0.0.0`，问题复发。
+
+**排查要点**：
+```bash
+dig AAAA www.pjcaio.top        # 有 AAAA 记录 = 浏览器会优先走 IPv6
+ss -tlnp | grep 8648           # 显示 0.0.0.0:8648 = IPv4-only（异常）；*:8648 = 双栈（正常）
+curl -6 http://[::1]:8648/     # IPv6 直连，非 200 = 没监听 IPv6
+```
+
+**修复**（`scripts/recover_ipv6_bind.sh`，幂等）：
+```bash
+bash scripts/recover_ipv6_bind.sh /vol6/@apphome/hermes-studio
+# 本质：dist/server/index.js 里两处 '||"0.0.0.0"' → '||"::"'
+#   1) BIND_HOST 默认值: t.BIND_HOST?.trim()||"0.0.0.0"
+#   2) listen 兜底地址:  let a=I||"0.0.0.0"
+# 改完需重启应用（应用中心 或 cmd/main restart）
+```
+
+**根因已同步官方源码**：`peng418/hermes-studio`（fork）已修 `packages/server/src/config.ts`（getListenHost 默认 `::`）+ `packages/server/src/index.ts`（listenWithFallback 兜底 `::`）+ 测试断言，PR 待官方合并。升级后若官方版仍未合入，用本脚本恢复即可。
+
+**验证**：
+```bash
+curl -6 http://[::1]:8648/   → HTTP 200（IPv6 通）
+curl    http://127.0.0.1:8648/ → HTTP 200（IPv4 通）
+ss -tlnp | grep 8648         → *:8648（双栈监听）
+grep -c '||"0.0.0.0"' dist/server/index.js → 0（UDP 广播等其他 0.0.0.0 属正常，勿动）
+```
+
+---
+
 ## 0. 源码修复：upgrade_callback 版本检测失效（2026-08-12 新增）
 
 **现象**：升级 Hermes Studio 后版本检测异常、反复重装或升级流程报错。
