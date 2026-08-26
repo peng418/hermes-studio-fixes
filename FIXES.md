@@ -39,6 +39,38 @@ grep -c '||"0.0.0.0"' dist/server/index.js → 0（UDP 广播等其他 0.0.0.0 �
 
 ---
 
+## 7. 源码修复：模型"编辑/更新"报 `400 Profile is required`（2026-08-26）
+
+**现象**：模型管理页点"编辑模型"/"更新模型"（provider editor、models/refresh 等接口）报 `API Error 400: Profile is required`；但模型列表、聊天等正常。
+
+**根因**：请求封装 `request()` 只在 `getActiveProfileName()`（读 `localStorage.hermes_active_profile_name`）**有值**时才带 `X-Hermes-Profile` 头。而该 key 只在 `fetchProfiles()`（profiles store 加载）执行时写入——单 profile 环境（只有 default）下若该加载流程没跑过，key 永远为空 → header 缺失 → 后端 `requireUserProfile` 返回 400。聊天/看板等组件都有 `|| 'default'` 兜底，唯独请求封装没有。
+
+**排查要点**：
+```bash
+# 浏览器 F12 → Console：
+localStorage.getItem('hermes_active_profile_name')   # null = 触发此 bug
+# Network 里看报错请求：缺 X-Hermes-Profile 请求头
+```
+
+**修复**（已应用到官方源码 `packages/client/src/api/client.ts`）：
+```ts
+export function getActiveProfileName(): string | null {
+  return localStorage.getItem(ACTIVE_PROFILE_STORAGE_KEY) || 'default'
+}
+```
+多 profile 用户 key 一定有值不受影响；仅单 profile（default）场景兜底。
+
+**验证**：
+```bash
+# 不带 header → 400 Profile is required；带 X-Hermes-Profile: default → 200
+curl -X POST .../api/hermes/config/providers/deepseek/models/refresh \
+  -H 'Authorization: Bearer <jwt>' -H 'X-Hermes-Profile: default' \
+  -H 'Content-Type: application/json' --data-raw '{"confirm":false}'
+```
+浏览器需硬刷新（Ctrl+Shift+R）加载新前端 JS 生效。
+
+---
+
 ## 0. 源码修复：upgrade_callback 版本检测失效（2026-08-12 新增）
 
 **现象**：升级 Hermes Studio 后版本检测异常、反复重装或升级流程报错。

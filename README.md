@@ -34,6 +34,7 @@ hermes-studio-fixes/
 | 4 | 环境 | `update --check` 无限卡死（透明代理异常时 git 无超时挂死） | 清远程代理，git 直连走 NAS 全局代理 + `lowSpeedLimit 100 / lowSpeedTime 120` 防御 |
 | 5 | 环境 | npm 全局装包 EACCES | `npm prefix → ${PKGHOME}/data/node` + npmmirror registry |
 | 6 | 源码 | 升级后 IPv6 域名打不开（监听被重置回 0.0.0.0，域名有 AAAA 记录时浏览器走 IPv6 连不上，8-14 首修 8-25 复发） | `scripts/recover_ipv6_bind.sh` 一键恢复双栈监听 `::`（官方源码已修，见 PR） |
+| 7 | 源码 | 模型页"编辑/更新模型"报 `400 Profile is required`（`getActiveProfileName()` 无兜底，localStorage 无 key 时 X-Hermes-Profile 头缺失，单 profile 环境必现） | 前端 `getActiveProfileName()` 加 `|| 'default'` 兜底（官方源码已修，见 PR） |
 
 ## 升级后合并流程
 
