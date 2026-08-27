@@ -1,0 +1,14 @@
+{
+    "data-share": {
+        "shares": [
+            {
+                "name": "hermes-studio-2"
+            }
+        ]
+    },
+    "usr-local-linker": {
+        "bin": [
+            "bin/hermes-web-ui"
+        ]
+    }
+}

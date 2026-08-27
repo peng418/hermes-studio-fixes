@@ -1,0 +1,11 @@
+/app/node/
+/app/hermes-agent-src/
+/app/hermes-agent-node/
+/hermes-studio-2.fpk
+/fnpack
+/dist/
+/preview/
+/fnos-skills/
+*.fpk
+node_modules/
+scripts/remote_*.sh

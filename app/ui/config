@@ -1,0 +1,15 @@
+{
+    ".url": {
+        "hermes-studio-2.Application": {
+            "title": "Hermes Studio 2",
+            "icon": "images/icon_{0}.png",
+            "type": "iframe",
+            "protocol": "",
+            "gatewaySocket": "hermes-studio-2.sock",
+            "gatewayPrefix": "/app/hermes-studio-2",
+            "port": "",
+            "url": "/app/hermes-studio-2",
+            "allUsers": false
+        }
+    }
+}
